@@ -15,12 +15,13 @@ import {
 } from "recharts";
 
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_PROYECTO.firebaseapp.com",
-  projectId: "TU_PROYECTO",
-  storageBucket: "TU_PROYECTO.appspot.com",
-  messagingSenderId: "XXXXXXXX",
-  appId: "XXXXXXXX",
+  apiKey: "AIzaSyBytw1Xe_XkJBYwe3ocujwQfbgaPzAusao",
+  authDomain: "gastos-app-7497c.firebaseapp.com",
+  projectId: "gastos-app-7497c",
+  storageBucket: "gastos-app-7497c.firebasestorage.app",
+  messagingSenderId: "1060465630927",
+  appId: "1:1060465630927:web:0896d2e32e96f5eda961ba",
+  measurementId: "G-0389HWF7FM"
 };
 
 const app = initializeApp(firebaseConfig);
