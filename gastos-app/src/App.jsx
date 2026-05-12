@@ -5,7 +5,18 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
+
 import { initializeApp } from "firebase/app";
+
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+
 import {
   PieChart,
   Pie,
@@ -26,6 +37,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 
 export default function App() {
@@ -96,26 +108,56 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("goal", savingsGoal);
   }, [savingsGoal]);
+  
+  useEffect(() => {
+  const loadTransactions = async () => {
+    if (!user) return;
 
-  const addTransaction = () => {
-    if (!form.title || !form.amount) return;
+    const q = query(
+      collection(db, "transactions"),
+      where("uid", "==", user.uid)
+    );
 
-    const newTransaction = {
-      id: Date.now(),
-      ...form,
-      amount: Number(form.amount),
-      date: new Date().toISOString(),
-    };
+    const querySnapshot = await getDocs(q);
 
-    setTransactions([newTransaction, ...transactions]);
+    const loadedTransactions = [];
 
-    setForm({
-      title: "",
-      amount: "",
-      category: categories[0],
-      type: "gasto",
+    querySnapshot.forEach((doc) => {
+      loadedTransactions.push({
+        id: doc.id,
+        ...doc.data(),
+      });
     });
+
+    setTransactions(loadedTransactions);
   };
+
+  loadTransactions();
+}, [user]);
+
+  const addTransaction = async () => {
+  if (!form.title || !form.amount || !user) return;
+
+  const newTransaction = {
+    uid: user.uid,
+    title: form.title,
+    amount: Number(form.amount),
+    category: form.category,
+    type: form.type,
+    date: new Date().toISOString(),
+  };
+
+  await addDoc(collection(db, "transactions"), newTransaction);
+
+  setTransactions([newTransaction, ...transactions]);
+
+  setForm({
+    title: "",
+    amount: "",
+    category: categories[0],
+    type: "gasto",
+  });
+};
 
   const addCategory = () => {
     if (!newCategory) return;
