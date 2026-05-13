@@ -4,7 +4,6 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
-  onAuthStateChanged,
 } from "firebase/auth";
 
 import { initializeApp } from "firebase/app";
@@ -16,7 +15,6 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
 } from "firebase/firestore";
 
 import {
@@ -27,7 +25,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyBytw1Xe_XkJBYwe3ocujwQfbgaPzAusao",
   authDomain: "gastos-app-7497c.firebaseapp.com",
@@ -35,6 +32,7 @@ const firebaseConfig = {
   storageBucket: "gastos-app-7497c.firebasestorage.app",
   messagingSenderId: "1060465630927",
   appId: "1:1060465630927:web:0896d2e32e96f5eda961ba",
+  measurementId: "G-0389HWF7FM",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -44,20 +42,47 @@ const provider = new GoogleAuthProvider();
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [transactions, setTransactions] = useState([]);
 
-  const [categories, setCategories] = useState([
-    "Comida",
-    "Gaming",
-    "Transporte",
-    "Facultad",
-  ]);
+  const loginWithGoogle = async () => {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      setUser(result.user);
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
-  const [savingsGoal, setSavingsGoal] = useState(100000);
+  const logout = async () => {
+    await signOut(auth);
+    setUser(null);
+    setTransactions([]);
+  };
 
-  const [wallet, setWallet] = useState({
-    cash: 0,
-    digital: 0,
+  const [transactions, setTransactions] = useState(() => {
+    const saved = localStorage.getItem("transactions");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [categories, setCategories] = useState(() => {
+    const saved = localStorage.getItem("categories");
+    return saved
+      ? JSON.parse(saved)
+      : ["Comida", "Gaming", "Transporte", "Facultad"];
+  });
+
+  const [savingsGoal, setSavingsGoal] = useState(() => {
+    return Number(localStorage.getItem("goal")) || 100000;
+  });
+
+  const [wallet, setWallet] = useState(() => {
+    const saved = localStorage.getItem("wallet");
+
+    return saved
+      ? JSON.parse(saved)
+      : {
+          cash: 0,
+          digital: 0,
+        };
   });
 
   const [form, setForm] = useState({
@@ -69,53 +94,50 @@ export default function App() {
 
   const [newCategory, setNewCategory] = useState("");
 
-  // 🔐 Auth listener (IMPORTANTE)
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
+    localStorage.setItem("transactions", JSON.stringify(transactions));
+  }, [transactions]);
 
-    return () => unsub();
-  }, []);
+  useEffect(() => {
+    localStorage.setItem("categories", JSON.stringify(categories));
+  }, [categories]);
 
-  // 🔽 Cargar transacciones desde Firestore
+  useEffect(() => {
+    localStorage.setItem("wallet", JSON.stringify(wallet));
+  }, [wallet]);
+
+  useEffect(() => {
+    localStorage.setItem("goal", String(savingsGoal));
+  }, [savingsGoal]);
+
+  // 🔥 FIX: cargar firestore correctamente
   useEffect(() => {
     const loadTransactions = async () => {
       if (!user) return;
 
       const q = query(
         collection(db, "transactions"),
-        where("uid", "==", user.uid),
-        orderBy("date", "desc")
+        where("uid", "==", user.uid)
       );
 
-      const snapshot = await getDocs(q);
+      const querySnapshot = await getDocs(q);
 
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const loadedTransactions = [];
 
-      setTransactions(data);
+      querySnapshot.forEach((doc) => {
+        loadedTransactions.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      setTransactions(loadedTransactions);
     };
 
     loadTransactions();
   }, [user]);
 
-  // 🔥 LOGIN
-  const loginWithGoogle = async () => {
-    const result = await signInWithPopup(auth, provider);
-    setUser(result.user);
-  };
-
-  // 🚪 LOGOUT
-  const logout = async () => {
-    await signOut(auth);
-    setUser(null);
-    setTransactions([]);
-  };
-
-  // ➕ AGREGAR TRANSACCIÓN (FIX REAL)
+  // 🔥 FIX PRINCIPAL (evita duplicación + agrega ID real)
   const addTransaction = async () => {
     if (!form.title || !form.amount || !user) return;
 
@@ -133,7 +155,6 @@ export default function App() {
       newTransaction
     );
 
-    // actualizar UI sin bugs
     setTransactions((prev) => [
       { id: docRef.id, ...newTransaction },
       ...prev,
@@ -147,14 +168,13 @@ export default function App() {
     });
   };
 
-  // ➕ categoría
   const addCategory = () => {
     if (!newCategory) return;
+
     setCategories([...categories, newCategory]);
     setNewCategory("");
   };
 
-  // 📊 cálculos
   const totalExpenses = transactions
     .filter((t) => t.type === "gasto")
     .reduce((acc, curr) => acc + curr.amount, 0);
@@ -171,7 +191,10 @@ export default function App() {
         .filter((t) => t.category === cat && t.type === "gasto")
         .reduce((acc, curr) => acc + curr.amount, 0);
 
-      return { name: cat, value: total };
+      return {
+        name: cat,
+        value: total,
+      };
     });
   }, [transactions, categories]);
 
@@ -187,88 +210,286 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white p-6">
       <div className="max-w-7xl mx-auto">
-
-        {/* HEADER */}
-        <div className="mb-8">
-          <h1 className="text-5xl font-black text-green-400">
+        <div className="mb-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <h1 className="text-5xl font-black text-green-400 mb-2">
             FinanceTracker Pro
           </h1>
+          <p className="text-zinc-400 text-lg">
+            Gestión inteligente de gastos, ingresos y ahorro.
+          </p>
         </div>
 
-        {/* LOGIN */}
-        {!user ? (
-          <button
-            onClick={loginWithGoogle}
-            className="bg-white text-black px-6 py-3 rounded-2xl font-bold"
-          >
-            Iniciar sesión con Google
-          </button>
-        ) : (
-          <div className="flex gap-4 items-center mb-6">
-            <img
-              src={user.photoURL}
-              className="w-10 h-10 rounded-full"
-            />
-            <div>
-              <p>{user.displayName}</p>
-              <p className="text-sm text-gray-400">{user.email}</p>
-            </div>
+        <div>
+          {!user ? (
             <button
-              onClick={logout}
-              className="bg-red-500 px-4 py-2 rounded-xl text-black"
+              onClick={loginWithGoogle}
+              className="bg-white text-black px-6 py-3 rounded-2xl font-bold hover:scale-105 transition-all"
             >
-              Salir
+              Iniciar sesión con Google
             </button>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="font-bold">{user.displayName}</p>
+                <p className="text-zinc-400 text-sm">{user.email}</p>
+              </div>
 
-        {/* FORM */}
-        <div className="bg-zinc-900 p-6 rounded-2xl mb-6">
-          <input
-            placeholder="Título"
-            value={form.title}
-            onChange={(e) =>
-              setForm({ ...form, title: e.target.value })
-            }
-            className="bg-zinc-800 p-2 rounded w-full mb-2"
-          />
+              <img
+                src={user.photoURL}
+                alt="profile"
+                className="w-12 h-12 rounded-full"
+              />
 
-          <input
-            type="number"
-            placeholder="Monto"
-            value={form.amount}
-            onChange={(e) =>
-              setForm({ ...form, amount: e.target.value })
-            }
-            className="bg-zinc-800 p-2 rounded w-full mb-2"
-          />
-
-          <button
-            onClick={addTransaction}
-            className="bg-green-500 text-black px-4 py-2 rounded"
-          >
-            Agregar
-          </button>
-        </div>
-
-        {/* LISTA */}
-        <div className="bg-zinc-900 p-4 rounded-2xl">
-          {transactions.map((t) => (
-            <div key={t.id} className="flex justify-between p-2">
-              <span>{t.title}</span>
-              <span
-                className={
-                  t.type === "gasto"
-                    ? "text-red-400"
-                    : "text-green-400"
-                }
+              <button
+                onClick={logout}
+                className="bg-red-500 px-4 py-2 rounded-xl font-bold text-black"
               >
-                ${t.amount}
-              </span>
+                Salir
+              </button>
             </div>
-          ))}
+          )}
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800">
+            <h2 className="text-zinc-400 mb-2">Gastos</h2>
+            <p className="text-3xl font-bold text-red-400">
+              ${totalExpenses.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800">
+            <h2 className="text-zinc-400 mb-2">Ingresos</h2>
+            <p className="text-3xl font-bold text-blue-400">
+              ${totalIncome.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800">
+            <h2 className="text-zinc-400 mb-2">Ahorro</h2>
+            <p className="text-3xl font-bold text-green-400">
+              ${totalSavings.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800">
+            <h2 className="text-zinc-400 mb-2">Meta Mensual</h2>
+            <input
+              type="number"
+              value={savingsGoal}
+              onChange={(e) => setSavingsGoal(e.target.value)}
+              className="bg-zinc-800 p-2 rounded-xl w-full mt-2"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+            <h2 className="text-2xl font-bold mb-6 text-green-400">
+              Nueva Transacción
+            </h2>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Descripción"
+                value={form.title}
+                onChange={(e) =>
+                  setForm({ ...form, title: e.target.value })
+                }
+                className="w-full bg-zinc-800 p-4 rounded-2xl"
+              />
+
+              <input
+                type="number"
+                placeholder="Monto"
+                value={form.amount}
+                onChange={(e) =>
+                  setForm({ ...form, amount: e.target.value })
+                }
+                className="w-full bg-zinc-800 p-4 rounded-2xl"
+              />
+
+              <select
+                value={form.type}
+                onChange={(e) =>
+                  setForm({ ...form, type: e.target.value })
+                }
+                className="w-full bg-zinc-800 p-4 rounded-2xl"
+              >
+                <option value="gasto">Gasto</option>
+                <option value="ingreso">Ingreso</option>
+              </select>
+
+              <select
+                value={form.category}
+                onChange={(e) =>
+                  setForm({ ...form, category: e.target.value })
+                }
+                className="w-full bg-zinc-800 p-4 rounded-2xl"
+              >
+                {categories.map((cat) => (
+                  <option key={cat}>{cat}</option>
+                ))}
+              </select>
+
+              <button
+                onClick={addTransaction}
+                className="w-full bg-green-500 hover:bg-green-400 transition-all rounded-2xl p-4 text-black font-bold"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+            <h2 className="text-2xl font-bold mb-6 text-blue-400">
+              Balance
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-zinc-400 mb-2">Dinero en efectivo</p>
+                <input
+                  type="number"
+                  value={wallet.cash}
+                  onChange={(e) =>
+                    setWallet({
+                      ...wallet,
+                      cash: Number(e.target.value),
+                    })
+                  }
+                  className="w-full bg-zinc-800 p-4 rounded-2xl"
+                />
+              </div>
+
+              <div>
+                <p className="text-zinc-400 mb-2">Dinero digital</p>
+                <input
+                  type="number"
+                  value={wallet.digital}
+                  onChange={(e) =>
+                    setWallet({
+                      ...wallet,
+                      digital: Number(e.target.value),
+                    })
+                  }
+                  className="w-full bg-zinc-800 p-4 rounded-2xl"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+            <h2 className="text-2xl font-bold mb-6 text-yellow-400">
+              Categorías
+            </h2>
+
+            <div className="flex gap-3 mb-4">
+              <input
+                type="text"
+                value={newCategory}
+                placeholder="Nueva categoría"
+                onChange={(e) => setNewCategory(e.target.value)}
+                className="flex-1 bg-zinc-800 p-4 rounded-2xl"
+              />
+
+              <button
+                onClick={addCategory}
+                className="bg-blue-500 px-5 rounded-2xl text-black font-bold"
+              >
+                +
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {categories.map((cat) => (
+                <div key={cat} className="bg-zinc-800 p-4 rounded-2xl">
+                  {cat}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 h-[450px]">
+            <h2 className="text-2xl font-bold mb-6 text-pink-400">
+              Distribución de Gastos
+            </h2>
+
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="value"
+                  nameKey="name"
+                  outerRadius={130}
+                  label
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={index}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800 overflow-auto max-h-[450px]">
+            <h2 className="text-2xl font-bold mb-6 text-orange-400">
+              Historial
+            </h2>
+
+            <div className="space-y-4">
+              {transactions.map((transaction) => (
+                <div
+                  key={transaction.id}
+                  className="bg-zinc-800 p-4 rounded-2xl flex justify-between items-center"
+                >
+                  <div>
+                    <h3 className="font-bold text-lg">
+                      {transaction.title}
+                    </h3>
+                    <p className="text-zinc-400">
+                      {transaction.category}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`font-bold text-xl ${
+                      transaction.type === "gasto"
+                        ? "text-red-400"
+                        : "text-green-400"
+                    }`}
+                  >
+                    {transaction.type === "gasto" ? "-" : "+"}$
+                    {transaction.amount.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">
+            Próximamente
+          </h2>
+
+          <ul className="space-y-3 text-zinc-300">
+            <li>• Login con Google</li>
+            <li>• Guardado en la nube</li>
+            <li>• APK Android</li>
+            <li>• Estadísticas avanzadas</li>
+            <li>• Exportar PDF y Excel</li>
+            <li>• Modo premium estilo banco</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
